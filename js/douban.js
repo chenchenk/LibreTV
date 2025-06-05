@@ -54,7 +54,7 @@ let doubanPageStart = 0;
 const doubanPageSize = 16; // 一次显示的项目数量
 
 // 初始化豆瓣功能
-function initDouban() {
+function initIndex() {
     // 设置豆瓣开关的初始状态
     const doubanToggle = document.getElementById('doubanToggle');
     if (doubanToggle) {
@@ -407,7 +407,7 @@ function fetchDoubanTags() {
 }
 
 // 渲染热门推荐内容
-function renderRecommend(tag, pageLimit, pageStart) {
+async function renderRecommend(tag, pageLimit, pageStart) {
     const container = document.getElementById("douban-results");
     if (!container) return;
 
@@ -423,22 +423,114 @@ function renderRecommend(tag, pageLimit, pageStart) {
     container.classList.add("relative");
     container.insertAdjacentHTML('beforeend', loadingOverlayHTML);
     
-    const target = `https://movie.douban.com/j/search_subjects?type=${doubanMovieTvCurrentSwitch}&tag=${tag}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`;
-    
-    // 使用通用请求函数
-    fetchDoubanData(target)
-        .then(data => {
-            renderDoubanCards(data, container);
-        })
-        .catch(error => {
-            console.error("获取豆瓣数据失败：", error);
-            container.innerHTML = `
-                <div class="col-span-full text-center py-8">
-                    <div class="text-red-400">❌ 获取豆瓣数据失败，请稍后重试</div>
-                    <div class="text-gray-500 text-sm mt-2">提示：使用VPN可能有助于解决此问题</div>
-                </div>
-            `;
+    try {
+        // 获取自定义API的推荐数据
+        const customRecommendData = await getCustomApiRecommendData();
+
+        // 控制界面元素显示
+        const doubanSwitchContainer = document.querySelector('#douban-movie-toggle').parentElement.parentElement;
+        const doubanTagsContainer = document.getElementById('douban-tags').parentElement;
+        
+        if (customRecommendData && customRecommendData.length > 0) {
+            // 如果有自定义API推荐数据，隐藏电影/电视剧切换和标签管理
+            doubanSwitchContainer.style.display = 'none';
+            doubanTagsContainer.style.display = 'none';
+        } else {
+            // 如果没有自定义API推荐数据，显示这些元素
+            doubanSwitchContainer.style.display = '';
+            doubanTagsContainer.style.display = '';
+        }
+
+        // 合并数据
+        let allResults = [];
+        if (customRecommendData.length == 0) {
+            // 获取豆瓣数据
+            const target = `https://movie.douban.com/j/search_subjects?type=${doubanMovieTvCurrentSwitch}&tag=${tag}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`;
+            const doubanData = await fetchDoubanData(target);
+            if (doubanData && doubanData.subjects) {
+                allResults = allResults.concat(doubanData.subjects.map(item => ({
+                    ...item,
+                    source: 'douban'
+                })));
+            }
+        }
+        
+        if (customRecommendData && customRecommendData.length > 0) {
+            allResults = allResults.concat(customRecommendData.map(item => ({
+                ...item,
+                source: 'custom'
+            })));
+        }
+        
+        // 随机打乱结果顺序
+        // allResults.sort(() => Math.random() - 0.5);
+        
+        // 渲染结果
+        renderDoubanCards({ subjects: allResults }, container);
+    } catch (error) {
+        console.error("获取推荐数据失败：", error);
+        container.innerHTML = `
+            <div class="col-span-full text-center py-8">
+                <div class="text-red-400">❌ 获取推荐数据失败，请稍后重试</div>
+                <div class="text-gray-500 text-sm mt-2">提示：使用VPN可能有助于解决此问题</div>
+            </div>
+        `;
+    }
+}
+
+// 获取自定义API的推荐数据
+async function getCustomApiRecommendData() {
+    try {
+        // 获取所有启用了推荐的自定义API
+        const recommendApis = customAPIs.filter(api => api.isRecommend && selectedAPIs.includes('custom_' + customAPIs.indexOf(api)));
+        
+        if (recommendApis.length === 0) {
+            return [];
+        }
+        
+        // 获取每个API的推荐数据
+        const recommendPromises = recommendApis.map(async (api) => {
+            try {
+                const apiUrl = `${api.url}${API_CONFIG.search.path}`;
+                const response = await fetch(PROXY_URL + encodeURIComponent(apiUrl), {
+                    headers: API_CONFIG.search.headers
+                });
+                
+                if (!response.ok) {
+                    return [];
+                }
+                
+                const data = await response.json();
+                
+                if (!data || !data.list || !Array.isArray(data.list)) {
+                    return [];
+                }
+                
+                // 转换数据格式以匹配豆瓣格式
+                return data.list.map(item => ({
+                    title: item.vod_name,
+                    rate: item.vod_score || "0.0",
+                    cover: item.vod_pic,
+                    url: item.vod_id,
+                    source_name: api.name,
+                    source_code: 'custom_' + customAPIs.indexOf(api),
+                    api_url: api.url
+                }));
+            } catch (error) {
+                console.warn(`获取自定义API ${api.name} 的推荐数据失败:`, error);
+                return [];
+            }
         });
+        
+        // 等待所有请求完成
+        const results = await Promise.all(recommendPromises);
+        
+        // 合并所有结果
+        return results.flat();
+    } catch (error) {
+        console.error("获取自定义API推荐数据失败：", error);
+        return [];
+    }
 }
 
 async function fetchDoubanData(url) {
@@ -499,70 +591,77 @@ function renderDoubanCards(data, container) {
     // 创建文档片段以提高性能
     const fragment = document.createDocumentFragment();
     
-    // 如果没有数据
-    if (!data.subjects || data.subjects.length === 0) {
-        const emptyEl = document.createElement("div");
-        emptyEl.className = "col-span-full text-center py-8";
-        emptyEl.innerHTML = `
-            <div class="text-pink-500">❌ 暂无数据，请尝试其他分类或刷新</div>
-        `;
-        fragment.appendChild(emptyEl);
-    } else {
-        // 循环创建每个影视卡片
-        data.subjects.forEach(item => {
-            const card = document.createElement("div");
-            card.className = "bg-[#111] hover:bg-[#222] transition-all duration-300 rounded-lg overflow-hidden flex flex-col transform hover:scale-105 shadow-md hover:shadow-lg";
-            
-            // 生成卡片内容，确保安全显示（防止XSS）
-            const safeTitle = item.title
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;');
-            
-            const safeRate = (item.rate || "暂无")
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
-            
-            // 处理图片URL
-            // 1. 直接使用豆瓣图片URL (添加no-referrer属性)
-            const originalCoverUrl = item.cover;
-            
-            // 2. 也准备代理URL作为备选
-            const proxiedCoverUrl = PROXY_URL + encodeURIComponent(originalCoverUrl);
-            
-            // 为不同设备优化卡片布局
-            card.innerHTML = `
-                <div class="relative w-full aspect-[2/3] overflow-hidden cursor-pointer" onclick="fillAndSearchWithDouban('${safeTitle}')">
-                    <img src="${originalCoverUrl}" alt="${safeTitle}" 
-                        class="w-full h-full object-cover transition-transform duration-500 hover:scale-110"
-                        onerror="this.onerror=null; this.src='${proxiedCoverUrl}'; this.classList.add('object-contain');"
-                        loading="lazy" referrerpolicy="no-referrer">
-                    <div class="absolute inset-0 bg-gradient-to-t from-black to-transparent opacity-60"></div>
-                    <div class="absolute bottom-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded-sm">
-                        <span class="text-yellow-400">★</span> ${safeRate}
-                    </div>
-                    <div class="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded-sm hover:bg-[#333] transition-colors">
-                        <a href="${item.url}" target="_blank" rel="noopener noreferrer" title="在豆瓣查看" onclick="event.stopPropagation();">
-                            🔗
-                        </a>
-                    </div>
-                </div>
-                <div class="p-2 text-center bg-[#111]">
-                    <button onclick="fillAndSearchWithDouban('${safeTitle}')" 
-                            class="text-sm font-medium text-white truncate w-full hover:text-pink-400 transition"
-                            title="${safeTitle}">
-                        ${safeTitle}
-                    </button>
-                </div>
-            `;
-            
-            fragment.appendChild(card);
-        });
+    // 移除加载动画
+    const loadingOverlay = container.querySelector('.absolute');
+    if (loadingOverlay) {
+        loadingOverlay.remove();
     }
+    
+    if (!data || !data.subjects || data.subjects.length === 0) {
+        container.innerHTML = `
+            <div class="col-span-full text-center py-8">
+                <div class="text-gray-400">暂无推荐内容</div>
+            </div>
+        `;
+        return;
+    }
+    
+    data.subjects.forEach(item => {
+        const card = document.createElement("div");
+        card.className = "relative group";
+        
+        // 处理标题和评分
+        const safeTitle = item.title.replace(/['"]/g, '');
+        const safeRate = item.rate || "0.0";
+        
+        // 处理封面图片
+        let originalCoverUrl = item.cover;
+        let proxiedCoverUrl = PROXY_URL + encodeURIComponent(originalCoverUrl);
+        
+        // 为不同设备优化卡片布局
+        card.innerHTML = `
+            <div class="relative w-full aspect-[2/3] overflow-hidden cursor-pointer" onclick="handleCardClick('${item.source}', '${item.url}', '${safeTitle}', '${item.source_code || ''}', '${item.api_url || ''}')">
+                <img src="${originalCoverUrl}" alt="${safeTitle}" 
+                    class="w-full h-full object-cover transition-transform duration-500 hover:scale-110"
+                    onerror="this.onerror=null; this.src='${proxiedCoverUrl}'; this.classList.add('object-contain');"
+                    loading="lazy" referrerpolicy="no-referrer">
+                <div class="absolute inset-0 bg-gradient-to-t from-black to-transparent opacity-60"></div>
+                <div class="absolute bottom-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded-sm">
+                    <span class="text-yellow-400">★</span> ${safeRate}
+                </div>
+                ${item.source === 'custom' ? `
+                    <div class="absolute top-2 right-2 bg-blue-500/70 text-white text-xs px-2 py-1 rounded-sm">
+                        ${item.source_name}
+                    </div>
+                ` : ''}
+            </div>
+            <div class="p-2 text-center bg-[#111]">
+                <button onclick="handleCardClick('${item.source}', '${item.url}', '${safeTitle}', '${item.source_code || ''}', '${item.api_url || ''}')" 
+                        class="text-sm font-medium text-white truncate w-full hover:text-pink-400 transition"
+                        title="${safeTitle}">
+                    ${safeTitle}
+                </button>
+            </div>
+        `;
+        
+        fragment.appendChild(card);
+    });
     
     // 清空并添加所有新元素
     container.innerHTML = "";
     container.appendChild(fragment);
+}
+
+// 处理卡片点击事件
+async function handleCardClick(source, id, title, sourceCode, apiUrl) {
+    if (source === 'douban') {
+        // 使用豆瓣ID搜索
+        document.getElementById('searchInput').value = title;
+        search();
+    } else if (source === 'custom') {
+        // 直接显示自定义API的详情
+        showDetails(id, title, sourceCode);
+    }
 }
 
 // 重置到首页
@@ -571,8 +670,8 @@ function resetToHome() {
     updateDoubanVisibility();
 }
 
-// 加载豆瓣首页内容
-document.addEventListener('DOMContentLoaded', initDouban);
+// 加载首页内容
+document.addEventListener('DOMContentLoaded', initIndex);
 
 // 显示标签管理模态框
 function showTagManageModal() {

@@ -1,6 +1,6 @@
 // 全局变量
 let selectedAPIs = JSON.parse(localStorage.getItem('selectedAPIs') || '["tyyszy","dyttzy", "bfzy", "ruyi"]'); // 默认选中资源
-let customAPIs = JSON.parse(localStorage.getItem('customAPIs') || '[]'); // 存储自定义API列表
+let customAPIs = JSON.parse(localStorage.getItem('customAPIs') || '[]'); // 存储自定义API列表，每个API包含name, url, detail, isAdult, isRecommend字段
 
 // 添加当前播放的集数索引
 let currentEpisodeIndex = 0;
@@ -43,10 +43,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // 设置黄色内容过滤器开关初始状态
-    const yellowFilterToggle = document.getElementById('yellowFilterToggle');
-    if (yellowFilterToggle) {
-        yellowFilterToggle.checked = localStorage.getItem('yellowFilterEnabled') === 'true';
-    }
+    // const yellowFilterToggle = document.getElementById('yellowFilterToggle');
+    // if (yellowFilterToggle) {
+    //     yellowFilterToggle.checked = localStorage.getItem('yellowFilterEnabled') === 'true';
+    // }
     
     // 设置广告过滤开关初始状态
     const adFilterToggle = document.getElementById('adFilterToggle');
@@ -58,7 +58,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setupEventListeners();
     
     // 初始检查成人API选中状态
-    setTimeout(checkAdultAPIsSelected, 100);
+    // setTimeout(checkAdultAPIsSelected, 100);
 });
 
 // 初始化API复选框
@@ -102,10 +102,10 @@ function initAPICheckboxes() {
     container.appendChild(normaldiv);
 
     // 添加成人API列表
-    addAdultAPI();
+    // addAdultAPI();
 
     // 初始检查成人内容状态
-    checkAdultAPIsSelected();
+    // checkAdultAPIsSelected();
 }
 
 // 添加成人API列表
@@ -222,7 +222,7 @@ function renderCustomAPIsList() {
         apiItem.className = 'flex items-center justify-between p-1 mb-1 bg-[#222] rounded';
         const textColorClass = api.isAdult ? 'text-pink-400' : 'text-white';
         const adultTag = api.isAdult ? '<span class="text-xs text-pink-400 mr-1">(18+)</span>' : '';
-        // 新增 detail 地址显示
+        const recommendTag = api.isRecommend ? '<span class="text-xs text-blue-400 mr-1">(推荐)</span>' : '';
         const detailLine = api.detail ? `<div class="text-xs text-gray-400 truncate">detail: ${api.detail}</div>` : '';
         apiItem.innerHTML = `
             <div class="flex items-center flex-1 min-w-0">
@@ -232,7 +232,7 @@ function renderCustomAPIsList() {
                        data-custom-index="${index}">
                 <div class="flex-1 min-w-0">
                     <div class="text-xs font-medium ${textColorClass} truncate">
-                        ${adultTag}${api.name}
+                        ${adultTag}${recommendTag}${api.name}
                     </div>
                     <div class="text-xs text-gray-500 truncate">${api.url}</div>
                     ${detailLine}
@@ -244,10 +244,24 @@ function renderCustomAPIsList() {
             </div>
         `;
         container.appendChild(apiItem);
-        apiItem.querySelector('input').addEventListener('change', function() {
-            updateSelectedAPIs();
-            checkAdultAPIsSelected();
-        });
+        
+        // 添加复选框事件监听
+        const checkbox = apiItem.querySelector(`#custom_api_${index}`);
+        if (checkbox) {
+            checkbox.addEventListener('change', function() {
+                if (this.checked) {
+                    selectedAPIs.push('custom_' + this.dataset.customIndex);
+                } else {
+                    const idx = selectedAPIs.indexOf('custom_' + this.dataset.customIndex);
+                    if (idx > -1) {
+                        selectedAPIs.splice(idx, 1);
+                    }
+                }
+                localStorage.setItem('selectedAPIs', JSON.stringify(selectedAPIs));
+                updateSelectedApiCount();
+                checkAdultAPIsSelected();
+            });
+        }
     });
 }
 
@@ -259,7 +273,9 @@ function editCustomApi(index) {
     document.getElementById('customApiUrl').value = api.url;
     document.getElementById('customApiDetail').value = api.detail || '';
     const isAdultInput = document.getElementById('customApiIsAdult');
+    const isRecommendInput = document.getElementById('customApiIsRecommend');
     if (isAdultInput) isAdultInput.checked = api.isAdult || false;
+    if (isRecommendInput) isRecommendInput.checked = api.isRecommend || false;
     const form = document.getElementById('addCustomApiForm');
     if (form) {
         form.classList.remove('hidden');
@@ -278,10 +294,12 @@ function updateCustomApi(index) {
     const urlInput = document.getElementById('customApiUrl');
     const detailInput = document.getElementById('customApiDetail');
     const isAdultInput = document.getElementById('customApiIsAdult');
+    const isRecommendInput = document.getElementById('customApiIsRecommend');
     const name = nameInput.value.trim();
     let url = urlInput.value.trim();
     const detail = detailInput ? detailInput.value.trim() : '';
     const isAdult = isAdultInput ? isAdultInput.checked : false;
+    const isRecommend = isRecommendInput ? isRecommendInput.checked : false;
     if (!name || !url) {
         showToast('请输入API名称和链接', 'warning');
         return;
@@ -291,8 +309,8 @@ function updateCustomApi(index) {
         return;
     }
     if (url.endsWith('/')) url = url.slice(0, -1);
-    // 保存 detail 字段
-    customAPIs[index] = { name, url, detail, isAdult };
+    // 保存所有字段
+    customAPIs[index] = { name, url, detail, isAdult, isRecommend };
     localStorage.setItem('customAPIs', JSON.stringify(customAPIs));
     renderCustomAPIsList();
     checkAdultAPIsSelected();
@@ -301,6 +319,7 @@ function updateCustomApi(index) {
     urlInput.value = '';
     if (detailInput) detailInput.value = '';
     if (isAdultInput) isAdultInput.checked = false;
+    if (isRecommendInput) isRecommendInput.checked = false;
     document.getElementById('addCustomApiForm').classList.add('hidden');
     showToast('已更新自定义API: ' + name, 'success');
 }
@@ -312,7 +331,9 @@ function cancelEditCustomApi() {
     document.getElementById('customApiUrl').value = '';
     document.getElementById('customApiDetail').value = '';
     const isAdultInput = document.getElementById('customApiIsAdult');
+    const isRecommendInput = document.getElementById('customApiIsRecommend');
     if (isAdultInput) isAdultInput.checked = false;
+    if (isRecommendInput) isRecommendInput.checked = false;
     
     // 隐藏表单
     document.getElementById('addCustomApiForm').classList.add('hidden');
@@ -394,7 +415,9 @@ function cancelAddCustomApi() {
         document.getElementById('customApiUrl').value = '';
         document.getElementById('customApiDetail').value = '';
         const isAdultInput = document.getElementById('customApiIsAdult');
+        const isRecommendInput = document.getElementById('customApiIsRecommend');
         if (isAdultInput) isAdultInput.checked = false;
+        if (isRecommendInput) isRecommendInput.checked = false;
         
         // 确保按钮是添加按钮
         restoreAddCustomApiButtons();
@@ -407,10 +430,12 @@ function addCustomApi() {
     const urlInput = document.getElementById('customApiUrl');
     const detailInput = document.getElementById('customApiDetail');
     const isAdultInput = document.getElementById('customApiIsAdult');
+    const isRecommendInput = document.getElementById('customApiIsRecommend');
     const name = nameInput.value.trim();
     let url = urlInput.value.trim();
     const detail = detailInput ? detailInput.value.trim() : '';
     const isAdult = isAdultInput ? isAdultInput.checked : false;
+    const isRecommend = isRecommendInput ? isRecommendInput.checked : false;
     if (!name || !url) {
         showToast('请输入API名称和链接', 'warning');
         return;
@@ -422,8 +447,8 @@ function addCustomApi() {
     if (url.endsWith('/')) {
         url = url.slice(0, -1);
     }
-    // 保存 detail 字段
-    customAPIs.push({ name, url, detail, isAdult });
+    // 保存所有字段
+    customAPIs.push({ name, url, detail, isAdult, isRecommend });
     localStorage.setItem('customAPIs', JSON.stringify(customAPIs));
     const newApiIndex = customAPIs.length - 1;
     selectedAPIs.push('custom_' + newApiIndex);
@@ -437,6 +462,7 @@ function addCustomApi() {
     urlInput.value = '';
     if (detailInput) detailInput.value = '';
     if (isAdultInput) isAdultInput.checked = false;
+    if (isRecommendInput) isRecommendInput.checked = false;
     document.getElementById('addCustomApiForm').classList.add('hidden');
     showToast('已添加自定义API: ' + name, 'success');
 }
