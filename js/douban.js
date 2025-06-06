@@ -480,7 +480,6 @@ async function renderRecommend(tag, pageLimit, pageStart) {
 
 // 获取自定义API的推荐数据
 async function getCustomApiRecommendData(pageStart) {
-    console.log(111111111111, pageStart)
     try {
         // 获取所有启用了推荐的自定义API
         const recommendApis = customAPIs.filter(api => api.isRecommend && selectedAPIs.includes('custom_' + customAPIs.indexOf(api)));
