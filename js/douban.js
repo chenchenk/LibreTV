@@ -425,7 +425,7 @@ async function renderRecommend(tag, pageLimit, pageStart) {
     
     try {
         // 获取自定义API的推荐数据
-        const customRecommendData = await getCustomApiRecommendData();
+        const customRecommendData = await getCustomApiRecommendData(pageStart);
 
         // 控制界面元素显示
         const doubanSwitchContainer = document.querySelector('#douban-movie-toggle').parentElement.parentElement;
@@ -479,7 +479,8 @@ async function renderRecommend(tag, pageLimit, pageStart) {
 }
 
 // 获取自定义API的推荐数据
-async function getCustomApiRecommendData() {
+async function getCustomApiRecommendData(pageStart) {
+    console.log(111111111111, pageStart)
     try {
         // 获取所有启用了推荐的自定义API
         const recommendApis = customAPIs.filter(api => api.isRecommend && selectedAPIs.includes('custom_' + customAPIs.indexOf(api)));
@@ -492,7 +493,7 @@ async function getCustomApiRecommendData() {
         const recommendPromises = recommendApis.map(async (api) => {
             try {
                 const apiUrl = `${api.url}${API_CONFIG.search.path}`;
-                const response = await fetch(PROXY_URL + encodeURIComponent(apiUrl), {
+                const response = await fetch(PROXY_URL + encodeURIComponent(apiUrl) + '&pg=' + pageStart / doubanPageSize, {
                     headers: API_CONFIG.search.headers
                 });
                 
